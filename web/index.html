@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Interviewer</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.js"></script>
+<script src="config.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; }
+  textarea { width: 100%; height: 160px; }
+  button { padding: 10px 20px; font-size: 16px; margin-top: 10px; }
+  #status { margin-top: 16px; font-weight: bold; }
+  #timer { font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 14px; }
+</style>
+</head>
+<body>
+  <h1>AI Interviewer</h1>
+
+  <div id="setup">
+    <textarea id="jobPosting" placeholder="Paste the job posting here..."></textarea><br>
+    <button id="startBtn">Start Interview</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="timer"></div>
+  <div id="results"></div>
+
+  <script>
+    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+    const vapi = new Vapi(CONFIG.VAPI_PUBLIC_KEY);
+
+    let sessionId = null;
+    let rubric = null;
+    let transcriptLog = [];
+    let callStartTime = null;
+    let timerInterval = null;
+
+    const statusEl = document.getElementById('status');
+    const timerEl = document.getElementById('timer');
+    const resultsEl = document.getElementById('results');
+    const startBtn = document.getElementById('startBtn');
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function startTimer() {
+      callStartTime = Date.now();
+      timerInterval = setInterval(() => {
+        const secs = Math.floor((Date.now() - callStartTime) / 1000);
+        const m = String(Math.floor(secs / 60)).padStart(2, '0');
+        const s = String(secs % 60).padStart(2, '0');
+        timerEl.textContent = `Call time: ${m}:${s} (Vapi bills per minute)`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+    }
+
+    startBtn.addEventListener('click', async () => {
+      const jobPosting = document.getElementById('jobPosting').value.trim();
+      if (!jobPosting) {
+        setStatus('Paste a job posting first.');
+        return;
+      }
+
+      startBtn.disabled = true;
+      setStatus('Generating questions...');
+
+      const res = await fetch(`${CONFIG.N8N_BASE_URL}/generate-questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobPosting })
+      });
+
+      if (!res.ok) {
+        setStatus('Failed to generate questions. Check the n8n workflow.');
+        startBtn.disabled = false;
+        return;
+      }
+
+      const data = await res.json();
+      sessionId = data.sessionId;
+      rubric = data.rubric;
+
+      subscribeToResults(sessionId);
+
+      const systemPrompt = `You are a professional, warm recruiter conducting a 15-20 minute screening call. ` +
+        `Ask the following questions ONE AT A TIME, in order, waiting for a full answer before moving on. ` +
+        `Do not give feedback or scoring on answers — just a brief acknowledgment, then the next question. ` +
+        `After the last question, thank the candidate and end the call.\n\nQuestions:\n` +
+        data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+
+      setStatus('Starting call...');
+      vapi.start({
+        model: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-5',
+          messages: [{ role: 'system', content: systemPrompt }]
+        },
+        firstMessage: "Hi, thanks for making time today. Let's get started."
+      });
+    });
+
+    vapi.on('call-start', () => {
+      setStatus('Interview in progress — speak naturally.');
+      transcriptLog = [];
+      startTimer();
+    });
+
+    vapi.on('message', (msg) => {
+      if (msg.type === 'transcript' && msg.transcriptType === 'final') {
+        transcriptLog.push(`${msg.role}: ${msg.transcript}`);
+      }
+    });
+
+    vapi.on('call-end', async () => {
+      stopTimer();
+      setStatus('Call ended. Scoring your answers...');
+
+      await fetch(`${CONFIG.N8N_BASE_URL}/score-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          rubric,
+          transcript: transcriptLog.join('\n')
+        })
+      });
+    });
+
+    function subscribeToResults(id) {
+      supabase
+        .channel(`session-${id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'interview_sessions',
+          filter: `id=eq.${id}`
+        }, (payload) => {
+          if (payload.new.status === 'scored') {
+            renderResults(payload.new.scorecard);
+          }
+        })
+        .subscribe();
+    }
+
+    function renderResults(scorecard) {
+      setStatus(`Done. Overall score: ${scorecard.overallScore}/100`);
+      let html = '<table><tr><th>Q</th><th>Score</th><th>Biggest Fix</th></tr>';
+      scorecard.perQuestion.forEach((q, i) => {
+        html += `<tr><td>Q${i + 1}</td><td>${q.score}</td><td>${q.biggestFix}</td></tr>`;
+      });
+      html += '</table><h3>Top 3 Fixes</h3><ul>' +
+        scorecard.top3Fixes.map(f => `<li>${f}</li>`).join('') + '</ul>';
+      resultsEl.innerHTML = html;
+      startBtn.disabled = false;
+    }
+  </script>
+</body>
+</html>
