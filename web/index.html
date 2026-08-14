@@ -45,6 +45,15 @@
 
     function setStatus(text) { statusEl.textContent = text; }
 
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function startTimer() {
       callStartTime = Date.now();
       timerInterval = setInterval(() => {
@@ -69,11 +78,18 @@
       startBtn.disabled = true;
       setStatus('Generating questions...');
 
-      const res = await fetch(`${CONFIG.N8N_BASE_URL}/generate-questions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobPosting })
-      });
+      let res;
+      try {
+        res = await fetch(`${CONFIG.N8N_BASE_URL}/generate-questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobPosting })
+        });
+      } catch (err) {
+        setStatus('Failed to generate questions — check the n8n workflow and try again.');
+        startBtn.disabled = false;
+        return;
+      }
 
       if (!res.ok) {
         setStatus('Failed to generate questions. Check the n8n workflow.');
@@ -120,15 +136,25 @@
       stopTimer();
       setStatus('Call ended. Scoring your answers...');
 
-      await fetch(`${CONFIG.N8N_BASE_URL}/score-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          rubric,
-          transcript: transcriptLog.join('\n')
-        })
-      });
+      try {
+        const res = await fetch(`${CONFIG.N8N_BASE_URL}/score-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            rubric,
+            transcript: transcriptLog.join('\n')
+          })
+        });
+
+        if (!res.ok) {
+          setStatus('Failed to submit for scoring — check the n8n workflow.');
+          startBtn.disabled = false;
+        }
+      } catch (err) {
+        setStatus('Failed to submit for scoring — check the n8n workflow.');
+        startBtn.disabled = false;
+      }
     });
 
     function subscribeToResults(id) {
@@ -151,10 +177,10 @@
       setStatus(`Done. Overall score: ${scorecard.overallScore}/100`);
       let html = '<table><tr><th>Q</th><th>Score</th><th>Biggest Fix</th></tr>';
       scorecard.perQuestion.forEach((q, i) => {
-        html += `<tr><td>Q${i + 1}</td><td>${q.score}</td><td>${q.biggestFix}</td></tr>`;
+        html += `<tr><td>Q${i + 1}</td><td>${q.score}</td><td>${escapeHtml(q.biggestFix)}</td></tr>`;
       });
       html += '</table><h3>Top 3 Fixes</h3><ul>' +
-        scorecard.top3Fixes.map(f => `<li>${f}</li>`).join('') + '</ul>';
+        scorecard.top3Fixes.map(f => `<li>${escapeHtml(f)}</li>`).join('') + '</ul>';
       resultsEl.innerHTML = html;
       startBtn.disabled = false;
     }
