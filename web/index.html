@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>AI Interviewer</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.js"></script>
 <script src="config.js"></script>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; }
@@ -28,7 +27,11 @@
   <div id="timer"></div>
   <div id="results"></div>
 
-  <script>
+  <script type="module">
+    import Vapi from 'https://esm.sh/@vapi-ai/web@2.6.1';
+
+    const MIN_JOB_POSTING_LENGTH = 100;
+
     const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
     const vapi = new Vapi(CONFIG.VAPI_PUBLIC_KEY);
 
@@ -37,6 +40,7 @@
     let transcriptLog = [];
     let callStartTime = null;
     let timerInterval = null;
+    let resultsChannel = null;
 
     const statusEl = document.getElementById('status');
     const timerEl = document.getElementById('timer');
@@ -74,6 +78,10 @@
         setStatus('Paste a job posting first.');
         return;
       }
+      if (jobPosting.length < MIN_JOB_POSTING_LENGTH) {
+        setStatus(`Paste the full job posting (at least ${MIN_JOB_POSTING_LENGTH} characters).`);
+        return;
+      }
 
       startBtn.disabled = true;
       setStatus('Generating questions...');
@@ -97,7 +105,21 @@
         return;
       }
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (err) {
+        setStatus('n8n returned an invalid response.');
+        startBtn.disabled = false;
+        return;
+      }
+
+      if (!data || !data.sessionId || !Array.isArray(data.questions) || !data.rubric) {
+        setStatus('n8n returned an unexpected response — check the Respond to Webhook node is configured correctly.');
+        startBtn.disabled = false;
+        return;
+      }
+
       sessionId = data.sessionId;
       rubric = data.rubric;
 
@@ -110,14 +132,19 @@
         data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
 
       setStatus('Starting call...');
-      vapi.start({
-        model: {
-          provider: 'anthropic',
-          model: 'claude-sonnet-5',
-          messages: [{ role: 'system', content: systemPrompt }]
-        },
-        firstMessage: "Hi, thanks for making time today. Let's get started."
-      });
+      try {
+        await vapi.start({
+          model: {
+            provider: 'anthropic',
+            model: 'claude-sonnet-5',
+            messages: [{ role: 'system', content: systemPrompt }]
+          },
+          firstMessage: "Hi, thanks for making time today. Let's get started."
+        });
+      } catch (err) {
+        setStatus('Could not start the call — check mic permission and your Vapi key.');
+        startBtn.disabled = false;
+      }
     });
 
     vapi.on('call-start', () => {
@@ -128,7 +155,8 @@
 
     vapi.on('message', (msg) => {
       if (msg.type === 'transcript' && msg.transcriptType === 'final') {
-        transcriptLog.push(`${msg.role}: ${msg.transcript}`);
+        const speaker = msg.role === 'assistant' ? 'Interviewer' : msg.role === 'user' ? 'Candidate' : msg.role;
+        transcriptLog.push(`${speaker}: ${msg.transcript}`);
       }
     });
 
@@ -157,8 +185,21 @@
       }
     });
 
+    vapi.on('error', (e) => {
+      stopTimer();
+      setStatus('Call error — see browser console.');
+      startBtn.disabled = false;
+      console.error(e);
+    });
+
     function subscribeToResults(id) {
-      supabase
+      if (resultsChannel) {
+        supabase.removeChannel(resultsChannel);
+        resultsChannel = null;
+      }
+      resultsEl.innerHTML = '';
+
+      resultsChannel = supabase
         .channel(`session-${id}`)
         .on('postgres_changes', {
           event: 'UPDATE',
@@ -174,10 +215,16 @@
     }
 
     function renderResults(scorecard) {
+      if (!scorecard || !Array.isArray(scorecard.perQuestion) || !Array.isArray(scorecard.top3Fixes)) {
+        setStatus('Scoring finished but returned an unexpected shape — check the n8n scoring workflow.');
+        startBtn.disabled = false;
+        return;
+      }
+
       setStatus(`Done. Overall score: ${scorecard.overallScore}/100`);
       let html = '<table><tr><th>Q</th><th>Score</th><th>Biggest Fix</th></tr>';
       scorecard.perQuestion.forEach((q, i) => {
-        html += `<tr><td>Q${i + 1}</td><td>${q.score}</td><td>${escapeHtml(q.biggestFix)}</td></tr>`;
+        html += `<tr><td>Q${i + 1}</td><td>${escapeHtml(q.score)}</td><td>${escapeHtml(q.biggestFix)}</td></tr>`;
       });
       html += '</table><h3>Top 3 Fixes</h3><ul>' +
         scorecard.top3Fixes.map(f => `<li>${escapeHtml(f)}</li>`).join('') + '</ul>';
