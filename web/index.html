@@ -32,7 +32,7 @@
 
     const MIN_JOB_POSTING_LENGTH = 100;
 
-    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY);
     const vapi = new Vapi(CONFIG.VAPI_PUBLIC_KEY);
 
     let sessionId = null;
