@@ -1,0 +1,183 @@
+{
+  "name": "AI Interviewer - Generate Questions",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-questions",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -256
+      ],
+      "id": "6d3bcee4-cfac-4416-ae40-c9194b1abbbf",
+      "name": "Webhook",
+      "webhookId": "2d3a7265-9100-4029-96a0-6bde3190ad41"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.body.jobPosting }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {
+          "systemMessage": "You generate realistic screening-call question sets for a specific job posting, modeled on real recruiter screening calls. Output ONLY valid JSON, no markdown fences, no commentary, matching exactly this shape: {\"questions\": [\"...\", \"...\"], \"rubric\": {\"Q1\": {\"must_hit\": [\"...\"], \"watch_for\": \"...\"}, \"Q2\": {\"must_hit\": [\"...\"], \"watch_for\": \"...\"}}}. Generate exactly 8 questions: one background/fit question, one drawn from the posting's core technical requirement, one problem-solving scenario question, one availability/logistics question, and four more drawn directly from the posting's stated requirements or nice-to-haves. Questions must sound like something a recruiter would actually say out loud in a 15-20 minute call, not a written exam. Rubric keys must exactly match \"Q1\" through \"Q8\" in the same order as the questions array. must_hit is a short list of what a strong answer needs to cover. watch_for is one specific weak-answer pattern to listen for."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        -256
+      ],
+      "id": "9ce8b6e7-d607-47fc-b520-a59fcf53699c",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "SwJ3uTikj2XtXhJ6",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"sessionId\": \"{{ $json.id }}\",\n  \"questions\": {{ JSON.stringify($node[\"Parse Response\"].json.questions) }},\n  \"rubric\": {{ JSON.stringify($node[\"Parse Response\"].json.rubric) }}\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1024,
+        -256
+      ],
+      "id": "cb3ab160-6c59-477d-87ab-d4067204e32c",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "tableId": "interview_sessions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "job_posting",
+              "fieldValue": "={{ $json.jobPosting }}"
+            },
+            {
+              "fieldId": "questions",
+              "fieldValue": "={{ JSON.stringify($json.questions) }}"
+            },
+            {
+              "fieldId": "rubric",
+              "fieldValue": "={{ JSON.stringify($json.rubric) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        800,
+        -256
+      ],
+      "id": "9adb53a1-16a4-4a8d-a298-ec99da8a3450",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "Pnpbx7fIe5Gg3MfU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.content.parts[0].text.trim();\n\nif (raw.startsWith('```')) {\n  raw = raw.replace(/^```(json)?\\n?/, '').replace(/```\\s*$/, '').trim();\n}\n\nconst parsed = JSON.parse(raw);\n\nreturn [{\n  json: {\n    jobPosting: $node[\"Webhook\"].json.body.jobPosting,\n    questions: parsed.questions,\n    rubric: parsed.rubric\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -256
+      ],
+      "id": "11c25a29-317d-4d24-be0f-56235f312b9f",
+      "name": "Parse Response"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6f67af1d-c615-42e3-94a7-746437e461cb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "43b7bb1ed3ed3767d5c1a66a0d5334d3270939cb6f4c44989c1cac42f8890f7f"
+  },
+  "nodeGroups": [],
+  "id": "eFZ4A0oIBvFSZbY0",
+  "tags": []
+}
