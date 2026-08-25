@@ -1,0 +1,192 @@
+{
+  "name": "AI Interviewer — Score Session",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "score-session",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "53019135-a8ef-4381-8f66-64716074c39f",
+      "name": "Webhook",
+      "webhookId": "2810696f-8dd4-401b-a49b-20368b03449d"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ 'RUBRIC:\\n' + JSON.stringify($json.body.rubric) + '\\n\\nTRANSCRIPT:\\n' + $json.body.transcript }}\n"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {
+          "systemMessage": "You score a mock interview transcript against a rubric, exactly like a strict but fair interview coach. For each question in the rubric, in order, score the candidate's answer 0-100 using this guide: 90-100 strong/specific/confident/no fillers/right length, 75-89 good with minor issues, 60-74 passable but vague or wrong length, below 60 needs significant improvement. Output ONLY valid JSON, no markdown fences, no commentary, matching exactly this shape: {\"perQuestion\": [{\"question\": \"...\", \"score\": 0, \"answerLength\": \"too short|ideal|too long\", \"fillerWords\": [\"...\"], \"keyPointsCovered\": \"x/y with which ones\", \"clarity\": \"clear|somewhat vague|unclear\", \"grammar\": \"clean|minor issues: ...\", \"confidenceSignals\": \"strong|weak: ...\", \"biggestFix\": \"...\", \"whatLanded\": \"...\"}], \"overallScore\": 0, \"top3Fixes\": [\"...\", \"...\", \"...\"]}. Match each transcript answer to its question by order. If the candidate skipped a question, score it 0 and note that in biggestFix."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "93953120-fb30-4aa6-99df-b36138b1b2b2",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "SwJ3uTikj2XtXhJ6",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.content.parts[0].text.trim();\n\nif (raw.startsWith('```')) {\n  raw = raw.replace(/^```(json)?\\n?/, '').replace(/```\\s*$/, '').trim();\n}\n\nconst scorecard = JSON.parse(raw);\n\nreturn [{\n  json: {\n    sessionId: $node[\"Webhook\"].json.body.sessionId,\n    transcript: $node[\"Webhook\"].json.body.transcript,\n    scorecard\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        0
+      ],
+      "id": "e059d822-c749-4303-abe1-1c3187302b31",
+      "name": "Parse Score"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "interview_sessions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.sessionId }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "transcript",
+              "fieldValue": "={{ $json.transcript }}"
+            },
+            {
+              "fieldId": "scorecard",
+              "fieldValue": "={{ JSON.stringify($json.scorecard) }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "scored"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        816,
+        0
+      ],
+      "id": "d1670e39-32cf-49e6-ba58-1c3dbec9230e",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "Pnpbx7fIe5Gg3MfU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"ok\": true\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "aff9cf45-51d8-4973-82e3-4731af1f32b7",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Score": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "967cbef1-67c5-42c7-9703-3688197596aa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "43b7bb1ed3ed3767d5c1a66a0d5334d3270939cb6f4c44989c1cac42f8890f7f"
+  },
+  "nodeGroups": [],
+  "id": "6okxkliRiQzW2sM8",
+  "tags": []
+}
