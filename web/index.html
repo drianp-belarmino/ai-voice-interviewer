@@ -139,6 +139,10 @@
             model: 'claude-sonnet-5',
             messages: [{ role: 'system', content: systemPrompt }]
           },
+          voice: {
+            provider: 'vapi',
+            voiceId: 'Elliot'
+          },
           firstMessage: "Hi, thanks for making time today. Let's get started."
         });
       } catch (err) {
