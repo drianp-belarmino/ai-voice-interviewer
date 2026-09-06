@@ -4,5 +4,5 @@ const CONFIG = {
   SUPABASE_URL: "https://YOUR-PROJECT.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "YOUR-PUBLISHABLE-KEY",
   VAPI_PUBLIC_KEY: "YOUR-VAPI-PUBLIC-KEY",
-  N8N_BASE_URL: "https://ziqhero.app.n8n.cloud/webhook"
+  N8N_BASE_URL: "http://localhost:5678/webhook"
 };
