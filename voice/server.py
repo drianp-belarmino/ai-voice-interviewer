@@ -52,7 +52,10 @@ load_dotenv()
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# "gemini-flash-latest" tracks whatever the current flash model is, so this does
+# not go stale. Verified against this account's model list; note that
+# "gemini-2.0-flash" is NOT available and would 404.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 PIPER_VOICE = os.getenv("PIPER_VOICE", "en_US-lessac-medium")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678/webhook")
 PORT = int(os.getenv("PORT", "7860"))
