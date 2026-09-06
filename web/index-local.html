@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Interviewer (local voice)</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; }
+  textarea { width: 100%; height: 160px; }
+  button { padding: 10px 20px; font-size: 16px; margin-top: 10px; }
+  #status { margin-top: 16px; font-weight: bold; }
+  #timer { font-variant-numeric: tabular-nums; }
+  #live { margin-top: 12px; padding: 10px; background: #f4f4f4; border-radius: 4px;
+          font-size: 14px; max-height: 220px; overflow-y: auto; white-space: pre-wrap; display: none; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 14px; }
+  .badge { font-size: 12px; font-weight: normal; color: #666; }
+</style>
+</head>
+<body>
+  <h1>AI Interviewer <span class="badge">local voice pipeline</span></h1>
+
+  <div id="setup">
+    <textarea id="jobPosting" placeholder="Paste the job posting here..."></textarea><br>
+    <button id="startBtn">Start Interview</button>
+    <button id="endBtn" style="display:none">End Interview</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="timer"></div>
+  <div id="live"></div>
+  <div id="results"></div>
+
+  <script type="module">
+    import { PipecatClient } from 'https://esm.sh/@pipecat-ai/client-js@1.13.1';
+    import { WebSocketTransport } from 'https://esm.sh/@pipecat-ai/websocket-transport@1.7.1';
+
+    const MIN_JOB_POSTING_LENGTH = 100;
+    const VOICE_SERVER = 'http://localhost:7860';
+
+    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY);
+
+    let sessionId = null;
+    let rubric = null;
+    let pcClient = null;
+    let callStartTime = null;
+    let timerInterval = null;
+    let resultsChannel = null;
+
+    const statusEl = document.getElementById('status');
+    const timerEl = document.getElementById('timer');
+    const liveEl = document.getElementById('live');
+    const resultsEl = document.getElementById('results');
+    const startBtn = document.getElementById('startBtn');
+    const endBtn = document.getElementById('endBtn');
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function startTimer() {
+      callStartTime = Date.now();
+      timerInterval = setInterval(() => {
+        const secs = Math.floor((Date.now() - callStartTime) / 1000);
+        const m = String(Math.floor(secs / 60)).padStart(2, '0');
+        const s = String(secs % 60).padStart(2, '0');
+        timerEl.textContent = `Call time: ${m}:${s}`;
+      }, 1000);
+    }
+
+    function stopTimer() { clearInterval(timerInterval); }
+
+    function appendLive(speaker, text) {
+      liveEl.style.display = 'block';
+      liveEl.textContent += `${speaker}: ${text}\n`;
+      liveEl.scrollTop = liveEl.scrollHeight;
+    }
+
+    function resetToIdle() {
+      startBtn.disabled = false;
+      endBtn.style.display = 'none';
+    }
+
+    startBtn.addEventListener('click', async () => {
+      const jobPosting = document.getElementById('jobPosting').value.trim();
+      if (!jobPosting) {
+        setStatus('Paste a job posting first.');
+        return;
+      }
+      if (jobPosting.length < MIN_JOB_POSTING_LENGTH) {
+        setStatus(`Paste the full job posting (at least ${MIN_JOB_POSTING_LENGTH} characters).`);
+        return;
+      }
+
+      startBtn.disabled = true;
+      liveEl.textContent = '';
+      liveEl.style.display = 'none';
+      resultsEl.innerHTML = '';
+      setStatus('Checking the voice server...');
+
+      // Fail early and specifically if the Python server is not running, rather
+      // than surfacing a confusing websocket error later.
+      try {
+        const health = await fetch(`${VOICE_SERVER}/health`);
+        const h = await health.json();
+        if (!h.deepgram_key_present) {
+          setStatus('Voice server is running but DEEPGRAM_API_KEY is missing from voice/.env');
+          return resetToIdle();
+        }
+        if (!h.google_key_present) {
+          setStatus('Voice server is running but GOOGLE_API_KEY is missing from voice/.env');
+          return resetToIdle();
+        }
+      } catch (err) {
+        setStatus('Voice server offline. Start it with: python server.py');
+        return resetToIdle();
+      }
+
+      setStatus('Generating questions...');
+
+      let res;
+      try {
+        res = await fetch(`${CONFIG.N8N_BASE_URL}/generate-questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobPosting })
+        });
+      } catch (err) {
+        setStatus('Could not reach n8n. Is it running on port 5678?');
+        return resetToIdle();
+      }
+
+      if (!res.ok) {
+        setStatus(`n8n returned ${res.status}. If this is 429, Gemini is rate limited — wait a few minutes.`);
+        return resetToIdle();
+      }
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (err) {
+        setStatus('n8n returned an empty or invalid response. Check its execution log.');
+        return resetToIdle();
+      }
+
+      if (!data || !data.sessionId || !Array.isArray(data.questions) || !data.rubric) {
+        setStatus('n8n returned an unexpected shape — check the Respond to Webhook node.');
+        return resetToIdle();
+      }
+
+      sessionId = data.sessionId;
+      rubric = data.rubric;
+
+      subscribeToResults(sessionId);
+
+      const systemPrompt = `You are a professional, warm recruiter conducting a 15-20 minute screening call. ` +
+        `Ask the following questions ONE AT A TIME, in order, waiting for a full answer before moving on. ` +
+        `Do not give feedback or scoring on answers — just a brief acknowledgment, then the next question. ` +
+        `After the last question, thank the candidate and end the call.\n\nQuestions:\n` +
+        data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+
+      // Register the interview with the voice server before opening audio.
+      // The server keeps the transcript and posts it to n8n itself at call end.
+      setStatus('Preparing the interviewer...');
+      try {
+        const reg = await fetch(`${VOICE_SERVER}/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, systemPrompt, rubric })
+        });
+        const regData = await reg.json();
+        if (!regData.ok) {
+          setStatus(`Voice server rejected the session: ${regData.error || 'unknown reason'}`);
+          return resetToIdle();
+        }
+      } catch (err) {
+        setStatus('Could not register the session with the voice server.');
+        return resetToIdle();
+      }
+
+      setStatus('Starting call — allow microphone access when prompted.');
+
+      pcClient = new PipecatClient({
+        transport: new WebSocketTransport(),
+        enableMic: true,
+        enableCam: false,
+        callbacks: {
+          onConnected: () => {
+            setStatus('Connected. Waiting for the interviewer...');
+          },
+          onBotReady: () => {
+            setStatus('Interview in progress — speak naturally.');
+            endBtn.style.display = 'inline-block';
+            startTimer();
+          },
+          onUserTranscript: (t) => {
+            if (t && t.final && t.text) appendLive('You', t.text);
+          },
+          onBotOutput: (b) => {
+            if (b && b.text) appendLive('Interviewer', b.text);
+          },
+          onDisconnected: () => {
+            stopTimer();
+            endBtn.style.display = 'none';
+            setStatus('Call ended. Scoring your answers...');
+          },
+          onError: (msg) => {
+            stopTimer();
+            const text = (msg && msg.message) || 'unknown error';
+            setStatus(`Voice error: ${text}`);
+            console.error('pipecat error', msg);
+            resetToIdle();
+          }
+        }
+      });
+
+      try {
+        await pcClient.connect({ ws_url: `ws://localhost:7860/ws/${sessionId}` });
+      } catch (err) {
+        setStatus('Could not open the audio connection — check the voice server log.');
+        console.error(err);
+        resetToIdle();
+      }
+    });
+
+    endBtn.addEventListener('click', async () => {
+      endBtn.disabled = true;
+      try {
+        await pcClient.disconnect();
+      } catch (err) {
+        console.error(err);
+      }
+      endBtn.disabled = false;
+    });
+
+    function subscribeToResults(id) {
+      if (resultsChannel) {
+        supabase.removeChannel(resultsChannel);
+        resultsChannel = null;
+      }
+      resultsEl.innerHTML = '';
+
+      resultsChannel = supabase
+        .channel(`session-${id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'interview_sessions',
+          filter: `id=eq.${id}`
+        }, (payload) => {
+          if (payload.new.status === 'scored') {
+            renderResults(payload.new.scorecard);
+          }
+        })
+        .subscribe();
+    }
+
+    function renderResults(scorecard) {
+      if (typeof scorecard === 'string') {
+        try { scorecard = JSON.parse(scorecard); } catch (e) { /* fall through */ }
+      }
+
+      if (!scorecard || !Array.isArray(scorecard.perQuestion) || !Array.isArray(scorecard.top3Fixes)) {
+        setStatus('Scoring finished but returned an unexpected shape — check the n8n scoring workflow.');
+        return resetToIdle();
+      }
+
+      setStatus(`Done. Overall score: ${scorecard.overallScore}/100`);
+      let html = '<table><tr><th>Q</th><th>Score</th><th>Biggest Fix</th></tr>';
+      scorecard.perQuestion.forEach((q, i) => {
+        html += `<tr><td>Q${i + 1}</td><td>${escapeHtml(q.score)}</td><td>${escapeHtml(q.biggestFix)}</td></tr>`;
+      });
+      html += '</table><h3>Top 3 Fixes</h3><ul>' +
+        scorecard.top3Fixes.map(f => `<li>${escapeHtml(f)}</li>`).join('') + '</ul>';
+      resultsEl.innerHTML = html;
+      resetToIdle();
+    }
+  </script>
+</body>
+</html>
