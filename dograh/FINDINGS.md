@@ -88,6 +88,48 @@ Note also that running the tunnel means the instance is reachable on a public
 `*.trycloudflare.com` URL with signup enabled. The URL is ephemeral and changes
 on every restart, which also rules it out as a stable way to share the app.
 
+## VERDICT: project stopped. Dograh does not solve the problem.
+
+Confirmed by running it, not by reading marketing. The first test call failed:
+
+```
+quota_service.py:613  | Dograh run authorization passed for key ...ICyj2owb: 500.00 credits remaining
+service_factory.py:263| Creating STT service: provider=ServiceProviders.DOGRAH, model=default
+ERROR                 | STT error: server rejected WebSocket connection: HTTP 402
+WARNING               | DograhFluxSTTService#0 connection closed by server
+```
+
+Three facts, all decisive:
+
+1. **The STT provider is `ServiceProviders.DOGRAH`** — their hosted service, not
+   anything running on this machine. Task 1's read of the compose file was right.
+2. **There is a server-side credit system** (`500.00 credits remaining`), owned
+   and metered by Dograh.
+3. **HTTP 402 Payment Required.** The call was refused for payment reasons on the
+   very first attempt, while online.
+
+**What "self-hosted, no API keys needed" actually means here:** you host the
+orchestrator, the workflow builder, and the database. Inference runs on Dograh's
+cloud, against a credit balance they control, gated on payment.
+
+That is the same shape as Vapi. A depleting balance that ends in a paywall. The
+difference is that Vapi's already works, has better-tuned turn-taking, and needs
+no Docker maintenance.
+
+The offline test was never needed. The **online** test failed.
+
+### Cost of finding out
+
+About 90 minutes, no code written, no change to the working app. Tasks 4, 5 and 6
+were never started. This is what the staged plan with early kill-checks was for.
+
+### What this does not mean
+
+Dograh is not bad software. The visual workflow builder is genuinely good and the
+install was clean. It is a real Vapi alternative for someone willing to pay
+Dograh instead of Vapi, or to wire in their own paid provider keys. It is simply
+not a route to free voice AI, which was the only reason this project existed.
+
 ## 4. Notes
 
 - The presence of `cloudflared` by default suggests outbound connectivity is
