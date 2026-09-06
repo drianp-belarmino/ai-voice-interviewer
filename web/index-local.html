@@ -83,9 +83,18 @@
 
     function stopTimer() { clearInterval(timerInterval); }
 
+    // The bot's output arrives in overlapping segments, so the same sentence can
+    // fire more than once. Drop an exact repeat of the previous line.
+    let lastLiveLine = '';
+
     function appendLive(speaker, text) {
+      const clean = String(text).trim();
+      if (!clean) return;
+      const line = `${speaker}: ${clean}`;
+      if (line === lastLiveLine) return;
+      lastLiveLine = line;
       liveEl.style.display = 'block';
-      liveEl.textContent += `${speaker}: ${text}\n`;
+      liveEl.textContent += line + '\n';
       liveEl.scrollTop = liveEl.scrollHeight;
     }
 
@@ -166,11 +175,25 @@
 
       subscribeToResults(sessionId);
 
-      const systemPrompt = `You are a professional, warm recruiter conducting a 15-20 minute screening call. ` +
-        `Ask the following questions ONE AT A TIME, in order, waiting for a full answer before moving on. ` +
-        `Do not give feedback or scoring on answers — just a brief acknowledgment, then the next question. ` +
-        `After the last question, thank the candidate and end the call.\n\nQuestions:\n` +
-        data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+      const systemPrompt = `You are a professional, warm recruiter conducting a 15-20 minute screening call.
+
+Ask the following questions ONE AT A TIME, in order.
+
+Critical rules about waiting:
+- Speech reaches you in fragments. A short fragment like "for" or "and then" means the candidate is still mid-sentence, NOT that they finished.
+- Only respond once the candidate has clearly completed a full thought. If what you received sounds incomplete or trails off, stay silent and wait.
+- Never acknowledge a fragment. Do not say "Got it" or "Understood" after a partial phrase.
+
+Style rules:
+- You are speaking out loud. Everything you write is converted to speech.
+- Never write stage directions, actions, or emotes. Do not write things like *nods* or *smiles*. They get read aloud and sound absurd.
+- Do not give feedback or scores on answers. A brief acknowledgment, then the next question.
+- Ask each question once. Do not repeat a question you have already asked.
+
+After the last question, thank the candidate and end the call.
+
+Questions:
+` + data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
 
       // Register the interview with the voice server before opening audio.
       // The server keeps the transcript and posts it to n8n itself at call end.

@@ -71,7 +71,7 @@ PORT = int(os.getenv("PORT", "7860"))
 # How long a silence must last before the turn machinery even considers that you
 # might be finished. Smart Turn then decides whether you actually are. Raise this
 # if it still clips you mid-sentence; see NOTES.md for tuning runs.
-VAD_STOP_SECS = float(os.getenv("VAD_STOP_SECS", "0.6"))
+VAD_STOP_SECS = float(os.getenv("VAD_STOP_SECS", "1.0"))
 
 # Vocabulary Deepgram would otherwise mangle. Every one of these is a word you
 # will actually say in an automation interview and that a general speech model
@@ -251,6 +251,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             punctuate=True,
             interim_results=True,
             profanity_filter=False,
+            # The important two. Without these Deepgram finalises on every short
+            # pause, so one sentence arrives as six "finished" utterances
+            # ("I worked as an Amazon" / "PPC specialist" / "for" / "a"). That
+            # wrecks the transcript the scorer reads, and it also makes Smart
+            # Turn think you finished talking, so the interviewer cuts in.
+            endpointing=int(os.getenv("DEEPGRAM_ENDPOINTING_MS", "800")),
+            utterance_end_ms=int(os.getenv("DEEPGRAM_UTTERANCE_END_MS", "1200")),
         ),
     )
 
