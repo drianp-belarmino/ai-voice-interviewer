@@ -144,7 +144,10 @@
             voiceId: 'Elliot'
           },
           startSpeakingPlan: {
-            waitSeconds: 4.5
+            waitSeconds: 4.5,
+            smartEndpointingPlan: {
+              provider: 'livekit'
+            }
           },
           firstMessage: "Hi, thanks for making time today. Let's get started."
         });
