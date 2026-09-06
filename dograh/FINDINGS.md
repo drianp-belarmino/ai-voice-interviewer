@@ -55,6 +55,39 @@ would then mean self-hosting the orchestrator while inference still runs on
 someone else's infrastructure, on someone else's terms, with limits nobody has
 documented.
 
+## 3b. Dograh on localhost expects an internet tunnel
+
+Discovered while installing, before the offline test was even attempted.
+
+Their `docker-compose.yaml` states it plainly:
+
+> When the value is non-public (localhost or a private/reserved IP), the API
+> resolves a running Cloudflare tunnel's URL at runtime instead
+
+So a localhost install is *designed* to reach out through Cloudflare. There is
+no supported setting for "I am local and I do not want a tunnel."
+
+Measured effect, same `/api/v1/health` endpoint:
+
+| cloudflared | Response time |
+|---|---|
+| running | 0.008 - 0.03 s |
+| stopped | 3.83 - 3.99 s |
+
+With the tunnel stopped, the API blocks ~3.8s on failed tunnel discovery. The
+UI health check times out at 3000ms, so the whole app shows "Backend connection
+failed" until the tunnel is restored.
+
+**Why this matters:** a product that genuinely ran offline would not put
+internet-dependent tunnel discovery in its health path. This is independent
+evidence, gathered before Task 2's offline call test, that Dograh assumes
+connectivity. It does not prove where inference runs, but it points the same
+direction as Task 1's finding.
+
+Note also that running the tunnel means the instance is reachable on a public
+`*.trycloudflare.com` URL with signup enabled. The URL is ephemeral and changes
+on every restart, which also rules it out as a stable way to share the app.
+
 ## 4. Notes
 
 - The presence of `cloudflared` by default suggests outbound connectivity is
