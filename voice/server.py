@@ -53,10 +53,17 @@ load_dotenv()
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-# "gemini-flash-latest" tracks whatever the current flash model is, so this does
-# not go stale. Verified against this account's model list; note that
-# "gemini-2.0-flash" is NOT available and would 404.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# A *lite* model on purpose, for three reasons that all matter here:
+#   1. Higher free-tier quota. gemini-flash-latest resolves to gemini-3.8-flash,
+#      whose free limit is 20 requests and which a single interview exhausts,
+#      because every conversational turn is one request.
+#   2. Lower latency, which is felt directly in a voice conversation.
+#   3. The job is easy. This model reads prepared questions in order and
+#      acknowledges answers. The hard reasoning happens in the n8n scorer.
+# Verified available on this account: gemini-flash-lite-latest,
+# gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-flash-latest.
+# NOT available: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 PIPER_VOICE = os.getenv("PIPER_VOICE", "en_US-lessac-medium")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678/webhook")
 PORT = int(os.getenv("PORT", "7860"))
