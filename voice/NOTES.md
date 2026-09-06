@@ -69,6 +69,62 @@ microphone and a human. That now happens against our own server in Task 2
 instead of a throwaway quickstart bot, which is a better test anyway since it
 uses the actual services this project will run.
 
+## Additional API findings (during Task 2 prep)
+
+**The install command in the plan was incomplete.** `pipecat-ai[deepgram,google,piper]`
+does not include FastAPI, so the websocket transport fails to import. The full
+command is:
+
+```
+pip install "pipecat-ai[deepgram,google,piper,websocket]"
+```
+
+**Remaining verified names:**
+
+```python
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, FastAPIWebsocketParams
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.task import PipelineTask, PipelineParams
+from pipecat.pipeline.runner import PipelineRunner   # WorkerRunner also exists
+```
+
+`FastAPIWebsocketParams` fields that matter: `audio_in_enabled`,
+`audio_out_enabled`, `serializer`, `session_timeout`, `allowed_origins`.
+
+**VADParams defaults:** `confidence=0.7, start_secs=0.2, stop_secs=0.2,
+min_volume=0.6`. Note `stop_secs=0.2` is very eager, consistent with Vapi's
+0.4s default being far too quick to interrupt. This is the fallback knob if
+Smart Turn is not doing enough on its own.
+
+**VAD does not live in the transport params in 1.8.1.** It attaches to the user
+side of the context aggregator pair, not to `FastAPIWebsocketParams`. The spec
+assumed otherwise.
+
+## Design correction: control channel vs audio channel
+
+The spec and plan specify that the browser sends
+`{"type": "start", "systemPrompt": "..."}` as the first WebSocket message, and
+receives transcript events on that same socket.
+
+**That does not fit how `FastAPIWebsocketTransport` works.** It expects to own
+the socket for binary audio framed by its own serializer. Interleaving custom
+JSON control messages means fighting that serializer.
+
+**Corrected design, two channels:**
+
+| Channel | Purpose |
+|---|---|
+| `POST /session` | Browser sends the generated system prompt, receives a session id |
+| `WS /ws?session=<id>` | Pipecat owns this entirely for audio |
+
+Transcript delivery still needs deciding: either a third channel (server-sent
+events or a second websocket), or have the browser rely on Pipecat's own
+transcription frames if the transport exposes a message path alongside audio.
+
+**This is unresolved and is the first thing to settle when Task 2 resumes.**
+
 ## Turn-taking tuning
 
 Filled in during Task 6.
