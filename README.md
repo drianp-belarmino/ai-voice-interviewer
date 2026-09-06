@@ -1,0 +1,107 @@
+# AI Interviewer — running it yourself
+
+Two apps share one backend. Start what you need, in any order.
+
+| Service | Port | Survives a reboot? |
+|---|---|---|
+| n8n (workflows) | 5678 | **Yes.** Docker, `--restart unless-stopped` |
+| Frontend (both apps) | 3000 | No. Start it each session |
+| Voice server (local pipeline only) | 7860 | No. Start it each session |
+
+## The two apps
+
+| App | URL | Voice by | Cost per interview |
+|---|---|---|---|
+| Vapi version | `localhost:3000/index.html` | Vapi (cloud) | ~$1.50 |
+| Local version | `localhost:3000/index-local.html` | Your own pipeline | ~$0.02 |
+
+Both use the same n8n workflows, the same Supabase table, and the same scorecard.
+Only the voice layer differs.
+
+## Starting up
+
+### 1. n8n — usually already running
+
+```powershell
+docker ps                 # is "n8n" listed?
+docker start n8n          # only if it is not
+```
+
+Check: open http://localhost:5678
+
+If Docker Desktop itself is closed, open it from the Start menu first and wait
+for "Engine running" bottom-left.
+
+### 2. Frontend — needed for both apps
+
+```powershell
+cd "C:\Users\Dell\Desktop\Project Demannu\.claude\worktrees\ai-interviewer\ai-interviewer\web"
+npx serve .
+```
+
+Leave that window open. Closing it stops the site.
+
+### 3. Voice server — only for the local version
+
+```powershell
+cd "C:\Users\Dell\Desktop\Project Demannu\.claude\worktrees\ai-interviewer\ai-interviewer\voice"
+.\venv\Scripts\Activate.ps1
+python server.py
+```
+
+Leave that window open too. Check: http://localhost:7860/health should report
+both keys present.
+
+**Close BlueStacks before a voice session.** It holds about 1.3 GB, which is the
+difference between this running smoothly and stuttering.
+
+## When something breaks
+
+**"Voice server offline"** — you skipped step 3, or its window got closed.
+
+**Page loads but "Could not reach n8n"** — n8n container is stopped. `docker start n8n`.
+
+**Everything looks fine but nothing saves, or the app hangs on scoring** — the
+Supabase free tier pauses after about a week idle. Check:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://YOUR-PROJECT.supabase.co/rest/v1/interview_sessions?select=id&limit=1 -H "apikey: YOUR-PUBLISHABLE-KEY"
+```
+
+`200` is healthy. `000` means it paused. Restore it at
+https://supabase.com/dashboard/project/YOUR-PROJECT and wait a few minutes.
+This will happen again. It is how the free tier works, not a fault.
+
+**Interview dies partway through with a 429** — Gemini free-tier quota. Every
+conversational turn is one API request, and free limits are as low as 20 per day
+per model. Either wait, or enable billing on the API key's Google Cloud project,
+which costs roughly two cents per interview. Note that a Google One / Gemini
+Advanced subscription does **not** include API access; that is a separate product.
+
+## Where things live
+
+| | |
+|---|---|
+| Frontends | `ai-interviewer/web/` |
+| Voice server | `ai-interviewer/voice/server.py` |
+| n8n workflow exports | `ai-interviewer/n8n/` |
+| Supabase schema | `ai-interviewer/supabase/schema.sql` |
+| API keys | `ai-interviewer/voice/.env` (gitignored) |
+| Findings and decisions | `ai-interviewer/voice/NOTES.md`, `ai-interviewer/dograh/FINDINGS.md` |
+
+**The n8n workflows live inside the Docker volume `n8n_data`, not in this repo.**
+The JSON exports in `ai-interviewer/n8n/` are backups you can re-import, but
+credentials never export. Deleting that volume means re-entering the Gemini and
+Supabase credentials by hand.
+
+## Tuning the local voice pipeline
+
+All in `ai-interviewer/voice/.env`, no code changes:
+
+| Setting | Default | Raise it if |
+|---|---|---|
+| `DEEPGRAM_ENDPOINTING_MS` | 800 | It cuts you off mid-sentence |
+| `DEEPGRAM_UTTERANCE_END_MS` | 1200 | Your speech arrives in fragments |
+| `VAD_STOP_SECS` | 1.0 | It responds while you are still thinking |
+
+Lower them if it feels sluggish. Change one at a time.
