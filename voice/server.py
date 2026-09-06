@@ -41,6 +41,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.transcriptions.language import Language
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.piper.tts import PiperTTSService
 from pipecat.transports.websocket.fastapi import (
@@ -64,6 +65,42 @@ PORT = int(os.getenv("PORT", "7860"))
 # might be finished. Smart Turn then decides whether you actually are. Raise this
 # if it still clips you mid-sentence; see NOTES.md for tuning runs.
 VAD_STOP_SECS = float(os.getenv("VAD_STOP_SECS", "0.6"))
+
+# Vocabulary Deepgram would otherwise mangle. Every one of these is a word you
+# will actually say in an automation interview and that a general speech model
+# has no reason to know. Keyterm prompting is a nova-3 feature; without it
+# "n8n" comes back as "N eight N" and "Supabase" as "supabase" or worse.
+KEYTERMS = [
+    "n8n",
+    "Supabase",
+    "Shopify",
+    "Klaviyo",
+    "Gemini",
+    "Vapi",
+    "ElevenLabs",
+    "Deepgram",
+    "Pipecat",
+    "webhook",
+    "webhooks",
+    "API",
+    "REST API",
+    "Postgres",
+    "Airtable",
+    "HubSpot",
+    "GoHighLevel",
+    "Zapier",
+    "Make.com",
+    "Messenger",
+    "Claude",
+    "OpenAI",
+    "LLM",
+    "JSON",
+    "automation",
+    "workflow",
+    "abandoned cart",
+    "lead generation",
+    "Taglish",
+]
 
 # session_id -> {"systemPrompt": str, "rubric": dict}
 SESSIONS: dict[str, dict] = {}
@@ -194,7 +231,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         ),
     )
 
-    stt = DeepgramSTTService(api_key=DEEPGRAM_API_KEY)
+    # Deepgram defaults to nova-3-general, which is the right model, but with
+    # keyterm=None and smart_format=False. In an automation interview almost
+    # every important noun is jargon a general model mangles, so boost them.
+    stt = DeepgramSTTService(
+        api_key=DEEPGRAM_API_KEY,
+        settings=DeepgramSTTService.Settings(
+            model="nova-3-general",
+            language=Language.EN,
+            keyterm=KEYTERMS,
+            smart_format=True,
+            punctuate=True,
+            interim_results=True,
+            profanity_filter=False,
+        ),
+    )
 
     llm = GoogleLLMService(
         api_key=GOOGLE_API_KEY,

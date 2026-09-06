@@ -33,8 +33,13 @@
   <div id="results"></div>
 
   <script type="module">
-    import { PipecatClient } from 'https://esm.sh/@pipecat-ai/client-js@1.13.1';
-    import { WebSocketTransport } from 'https://esm.sh/@pipecat-ai/websocket-transport@1.7.1';
+    // Use jsDelivr, not esm.sh. esm.sh serves these packages' CJS build, which is
+    // ES5-transpiled, and the transport then fails subclassing a native ES6 class
+    // from client-js with "Class constructor E cannot be invoked without 'new'".
+    // Forcing target=esnext on esm.sh does not fix it. jsDelivr's /+esm serves
+    // dist/index.module.js, the real ESM build, so the class hierarchy stays intact.
+    import { PipecatClient } from 'https://cdn.jsdelivr.net/npm/@pipecat-ai/client-js@1.13.1/+esm';
+    import { WebSocketTransport } from 'https://cdn.jsdelivr.net/npm/@pipecat-ai/websocket-transport@1.7.1/+esm';
 
     const MIN_JOB_POSTING_LENGTH = 100;
     const VOICE_SERVER = 'http://localhost:7860';
