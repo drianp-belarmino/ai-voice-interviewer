@@ -18,6 +18,28 @@ Two apps share one backend. Start what you need, in any order.
 Both use the same n8n workflows, the same Supabase table, and the same scorecard.
 Only the voice layer differs.
 
+## First-time setup
+
+The frontend reads its keys from `web/config.js`, which is gitignored. Copy the
+template and fill in your own values:
+
+```bash
+cp web/config.example.js web/config.js
+```
+
+| Key | Where to get it |
+|---|---|
+| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | Supabase dashboard, Project Settings > API |
+| `VAPI_PUBLIC_KEY` | Vapi dashboard (only needed for the Vapi version) |
+
+The voice server reads its own keys from `voice/.env` — copy `voice/.env.example`
+the same way.
+
+**Note on the Supabase key.** `supabase/schema.sql` grants read access to any
+holder of the publishable key. That is fine for a single-user local tool and not
+fine for anything hosted. Tighten the RLS policy before putting this on a public
+URL.
+
 ## Starting up
 
 ### 1. n8n — usually already running
