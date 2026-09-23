@@ -127,3 +127,38 @@ All in `ai-interviewer/voice/.env`, no code changes:
 | `VAD_STOP_SECS` | 1.0 | It responds while you are still thinking |
 
 Lower them if it feels sluggish. Change one at a time.
+
+## Known gaps
+
+Found on 2026-09-24 by deliberately breaking things. All verified, none fixed yet.
+
+**The health check cannot detect a dead key.**
+`/health` and `POST /session` both check only that `DEEPGRAM_API_KEY` and
+`GOOGLE_API_KEY` are non-empty. Neither checks that the credential works. With a
+revoked or quota-exhausted key both report success and the app registers an
+interview it cannot finish, so the failure surfaces only once someone is
+mid-sentence. A real check would make one cheap authenticated call at startup.
+
+**A transient 503 from Gemini kills the interview before it starts.**
+The Google Gemini node in the question-generation workflow has no retry
+configured. Google returned 503 once during testing and the page showed
+"n8n returned an empty or invalid response" with nothing recoverable. Fix is in
+n8n: select the node, Settings, Retry On Fail, three tries with a wait between.
+
+**Voice errors always read "unknown error".**
+`onError` in `web/index-local.html` reads `msg.message`, but the RTVI error
+object carries its payload in `msg.data`. The real cause reaches the browser and
+is thrown away. The server side also logs the exception in `voice/server.py`
+without sending anything over the socket, so a corrected handler still needs the
+server to emit it.
+
+**Teardown after a voice error runs out of order.**
+A failed session leaves an uncaught promise rejection, "Session ended: please
+call .begin() first". The media recorder keeps operating on a session that has
+already closed.
+
+**DNS caches a paused Supabase project.**
+When the project pauses its hostname stops resolving, and your resolver caches
+that answer. After restoring, the name still fails locally while public
+resolvers already see it. Run `ipconfig /flushdns`. Confirm with
+`nslookup <host> 8.8.8.8`, which resolves while your own resolver does not.
