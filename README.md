@@ -153,12 +153,22 @@ which is true but useless. The better shape is On Error: Continue (using error
 output) routed to a Respond to Webhook node that returns a real message. Not
 done, it needs a new branch in the workflow.
 
-**Voice errors always read "unknown error".**
-`onError` in `web/index-local.html` reads `msg.message`, but the RTVI error
-object carries its payload in `msg.data`. The real cause reaches the browser and
-is thrown away. The server side also logs the exception in `voice/server.py`
-without sending anything over the socket, so a corrected handler still needs the
-server to emit it.
+**Voice errors always read "unknown error". FIXED.**
+Three things were in the way, and the first two guesses at it were wrong.
+The RTVI error object carries no `.message`, so the handler always fell through
+to its default. The reason cannot be sent down the audio socket either, because
+that socket is a binary protobuf stream and a JSON frame makes the client fail
+to deserialise, which is its own confusing error. And pipecat does not raise
+service failures out of the pipeline runner: it catches them and pushes an
+`ErrorFrame`, so a `try/except` around `runner.run()` never sees one. The fix is
+a `BaseObserver` watching `on_push_frame` for `ErrorFrame`, parking the reason
+in memory, plus `GET /session/<id>/error` which the page reads when `onError`
+fires. Verified by revoking the key and watching the real 401 reach the screen.
+
+**The message the page now shows is raw provider JSON.**
+Accurate, and far too long to put in front of a person. For anything hosted it
+also risks leaking internals. Known exceptions should map to short sentences
+with the raw text kept in the log. Not done.
 
 **Teardown after a voice error runs out of order.**
 A failed session leaves an uncaught promise rejection, "Session ended: please

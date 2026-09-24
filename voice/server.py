@@ -31,6 +31,8 @@ from pydantic import BaseModel
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.frames.frames import ErrorFrame
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -112,6 +114,30 @@ KEYTERMS = [
 # session_id -> {"systemPrompt": str, "rubric": dict}
 SESSIONS: dict[str, dict] = {}
 
+# The audio socket is a binary protobuf stream, so a readable error cannot be
+# sent down it without the client failing to deserialise the frame. Park the
+# reason here instead and let the page ask for it over plain HTTP.
+ERRORS: dict[str, str] = {}
+
+
+class ErrorRecorder(BaseObserver):
+    """Catch the reason a run died so the page can ask for it later.
+
+    Pipecat does not raise service failures out of the pipeline runner. It
+    catches them and pushes an ErrorFrame instead, so a try/except around
+    runner.run() never sees them. Watching frames is the only place the real
+    message exists.
+    """
+
+    def __init__(self, session_id: str):
+        super().__init__()
+        self._session_id = session_id
+
+    async def on_push_frame(self, data: FramePushed):
+        if isinstance(data.frame, ErrorFrame):
+            reason = getattr(data.frame, "error", None) or str(data.frame)
+            ERRORS[self._session_id] = str(reason)
+
 
 class SessionRequest(BaseModel):
     """What the browser sends before opening the audio socket."""
@@ -161,8 +187,15 @@ async def create_session(req: SessionRequest):
         "systemPrompt": req.systemPrompt,
         "rubric": req.rubric,
     }
+    ERRORS.pop(req.sessionId, None)
     logger.info(f"session registered: {req.sessionId}")
     return {"ok": True, "sessionId": req.sessionId}
+
+
+@app.get("/session/{session_id}/error")
+async def session_error(session_id: str):
+    """What actually killed the last run of this session, if anything."""
+    return {"error": ERRORS.get(session_id)}
 
 
 def build_transcript(context: LLMContext) -> str:
@@ -289,13 +322,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         ]
     )
 
-    task = PipelineTask(pipeline)
+    task = PipelineTask(pipeline, observers=[ErrorRecorder(session_id)])
     runner = PipelineRunner(handle_sigint=False)
 
     try:
         await runner.run(task)
     except Exception as exc:
         logger.error(f"{session_id}: pipeline failed: {exc}")
+        ERRORS[session_id] = str(exc)
     finally:
         transcript = build_transcript(context)
         logger.info(f"{session_id}: call ended, {len(transcript.splitlines())} transcript lines")

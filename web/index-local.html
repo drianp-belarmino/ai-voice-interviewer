@@ -240,11 +240,21 @@ Questions:
             endBtn.style.display = 'none';
             setStatus('Call ended. Scoring your answers...');
           },
-          onError: (msg) => {
+          onError: async (msg) => {
             stopTimer();
-            const text = (msg && msg.message) || 'unknown error';
-            setStatus(`Voice error: ${text}`);
             console.error('pipecat error', msg);
+            // The RTVI error object carries no .message, and the audio socket
+            // is binary protobuf so the real reason cannot come through it.
+            // The voice server parks it on /session/<id>/error instead.
+            let text = (msg && msg.message) || 'unknown error';
+            try {
+              const r = await fetch(`http://localhost:7860/session/${sessionId}/error`);
+              const j = await r.json();
+              if (j && j.error) text = j.error;
+            } catch (e) {
+              console.error('could not read server-side error', e);
+            }
+            setStatus(`Voice error: ${text}`);
             resetToIdle();
           }
         }
