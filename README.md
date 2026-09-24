@@ -130,7 +130,8 @@ Lower them if it feels sluggish. Change one at a time.
 
 ## Known gaps
 
-Found on 2026-09-24 by deliberately breaking things. All verified, none fixed yet.
+Found on 2026-09-24 by deliberately breaking things. All reproduced, not guessed.
+Fixed ones are marked.
 
 **The health check cannot detect a dead key.**
 `/health` and `POST /session` both check only that `DEEPGRAM_API_KEY` and
@@ -139,11 +140,18 @@ revoked or quota-exhausted key both report success and the app registers an
 interview it cannot finish, so the failure surfaces only once someone is
 mid-sentence. A real check would make one cheap authenticated call at startup.
 
-**A transient 503 from Gemini kills the interview before it starts.**
-The Google Gemini node in the question-generation workflow has no retry
-configured. Google returned 503 once during testing and the page showed
-"n8n returned an empty or invalid response" with nothing recoverable. Fix is in
-n8n: select the node, Settings, Retry On Fail, three tries with a wait between.
+**A transient 503 from Gemini killed the interview before it started. FIXED.**
+The Google Gemini node had no retry configured. Google returned 503 once during
+testing and the page showed "n8n returned an empty or invalid response" with
+nothing recoverable. Both the Gemini node and the Supabase node now retry three
+times with a 2s wait.
+
+**After retries are exhausted the user still sees a parse error.**
+Both nodes are set to On Error: Stop Workflow, so a genuine outage returns an
+empty body and the page reports "n8n returned an empty or invalid response",
+which is true but useless. The better shape is On Error: Continue (using error
+output) routed to a Respond to Webhook node that returns a real message. Not
+done, it needs a new branch in the workflow.
 
 **Voice errors always read "unknown error".**
 `onError` in `web/index-local.html` reads `msg.message`, but the RTVI error
