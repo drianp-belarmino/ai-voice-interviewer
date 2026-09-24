@@ -14,9 +14,9 @@
       "typeVersion": 2.1,
       "position": [
         0,
-        -256
+        0
       ],
-      "id": "6d3bcee4-cfac-4416-ae40-c9194b1abbbf",
+      "id": "7d441d40-0051-431c-a6f2-f6f0420afa89",
       "name": "Webhook",
       "webhookId": "2d3a7265-9100-4029-96a0-6bde3190ad41"
     },
@@ -25,7 +25,9 @@
         "modelId": {
           "__rl": true,
           "mode": "list",
-          "value": "models/gemini-3-flash-preview"
+          "value": "models/gemini-3-flash-preview",
+          "cachedResultName": "models/gemini-3-flash-preview",
+          "cachedResultUrl": ""
         },
         "messages": {
           "values": [
@@ -44,14 +46,16 @@
       "typeVersion": 1.2,
       "position": [
         224,
-        -256
+        0
       ],
-      "id": "9ce8b6e7-d607-47fc-b520-a59fcf53699c",
+      "id": "c48b0d36-8221-4ff0-b91c-117acc8fe674",
       "name": "Message a model",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
       "credentials": {
         "googlePalmApi": {
-          "id": "SwJ3uTikj2XtXhJ6",
-          "name": "Google Gemini(PaLM) Api account"
+          "id": "z7Tb7qVKrBWYxItn",
+          "name": "ZiQ Hero"
         }
       }
     },
@@ -65,9 +69,9 @@
       "typeVersion": 1.5,
       "position": [
         1024,
-        -256
+        0
       ],
-      "id": "cb3ab160-6c59-477d-87ab-d4067204e32c",
+      "id": "1c8fda34-9da3-4237-a80c-e65bd5147ed0",
       "name": "Respond to Webhook"
     },
     {
@@ -94,13 +98,15 @@
       "typeVersion": 1,
       "position": [
         800,
-        -256
+        0
       ],
-      "id": "9adb53a1-16a4-4a8d-a298-ec99da8a3450",
+      "id": "95124e52-dbb8-4535-bc58-73caf56c70dd",
       "name": "Create a row",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
       "credentials": {
         "supabaseApi": {
-          "id": "Pnpbx7fIe5Gg3MfU",
+          "id": "2OKhjOXuwGi8Djud",
           "name": "Supabase account"
         }
       }
@@ -113,9 +119,9 @@
       "typeVersion": 2,
       "position": [
         576,
-        -256
+        0
       ],
-      "id": "11c25a29-317d-4d24-be0f-56235f312b9f",
+      "id": "66bdeed2-70d9-419f-9331-fa8b056c8ff1",
       "name": "Parse Response"
     }
   ],
@@ -169,15 +175,13 @@
   "active": true,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate",
-    "availableInMCP": false
+    "binaryMode": "separate"
   },
-  "versionId": "6f67af1d-c615-42e3-94a7-746437e461cb",
+  "versionId": "b9d7a4e0-cf61-47e5-bab0-027f78af6619",
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "43b7bb1ed3ed3767d5c1a66a0d5334d3270939cb6f4c44989c1cac42f8890f7f"
+    "instanceId": "8a9238abf758ab560115a21a3bbce6b221edebdbef8d01ac74aeeac5ad1e77c6"
   },
   "nodeGroups": [],
-  "id": "eFZ4A0oIBvFSZbY0",
+  "id": "Yvvabtca9vEkORla",
   "tags": []
 }
